@@ -1,3 +1,7 @@
+#streamlit
+#tensorflow-cpu
+#numpy
+#pillow
 # flask
 # reportlab
 # firebase_admin
