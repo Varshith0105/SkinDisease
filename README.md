@@ -26,8 +26,8 @@ This project bridges the gap between AI technology and accessible healthcare, pa
 
 ## 👥 Team Members
 
-| Name | Registration No. |
-|------|------------------|
+| Name | 
+|------|
 | Julakanti Varshith |
 | Likita Reddy Bojja |
 
