@@ -456,3 +456,20 @@ if __name__ == "__main__":
 
 # ngrok http 5000
 # https://bria-unurbanized-adorably.ngrok-free.dev/
+
+import streamlit as st
+import tensorflow as tf
+from PIL import Image
+import numpy as np
+
+st.title("AI-Based Skin Disease Detection")
+
+model = tf.keras.models.load_model("model.h5")
+
+uploaded = st.file_uploader("Upload skin image", type=["jpg","png"])
+
+if uploaded:
+    img = Image.open(uploaded).resize((224,224))
+    arr = np.array(img)/255.0
+    pred = model.predict(arr.reshape(1,224,224,3))
+    st.success(f"Prediction: {np.argmax(pred)}")
