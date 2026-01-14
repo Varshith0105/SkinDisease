@@ -1,0 +1,34 @@
+#streamlit
+#tensorflow-cpu
+#numpy
+#pillow
+# flask
+# reportlab
+# firebase_admin
+# tensorflow
+# numpy
+# PIL
+# datetime
+
+
+# --- Core ---
+Flask==3.0.3
+Flask-Cors==4.0.1
+
+# --- Machine Learning ---
+tensorflow==2.16.1
+numpy==1.26.4
+Pillow==10.3.0
+
+# --- PDF Generation ---
+reportlab==4.2.2
+
+# --- Firebase Integration ---
+firebase-admin==6.5.0
+
+# --- WhatsApp / Twilio Integration ---
+twilio==9.3.2
+requests==2.32.3
+
+# --- Utilities ---
+gunicorn==22.0.0  # optional, for deployment
