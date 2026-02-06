@@ -4,3 +4,6 @@ tensorflow-cpu
 numpy
 pillow
 reportlab
+firebase-admin
+twilio
+requests
