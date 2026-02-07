@@ -30,6 +30,7 @@ This project bridges the gap between AI technology and accessible healthcare, pa
 |------|
 | Julakanti Varshith |
 | Likita Reddy Bojja |
+| Akshaya Kattupalli |
 
 
 ---
