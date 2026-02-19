@@ -297,12 +297,6 @@ ngrok http 5000
 
 ---
 
-## 🌐 Live Demo
-
-*https://07saroj.github.io/SmartSkinAI/*
- For frontend only
----
-
 ## 🤝 Contributing
 
 This is an academic project. For suggestions or issues:
