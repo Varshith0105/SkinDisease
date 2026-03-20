@@ -1,4 +1,7 @@
 import os
+import threading
+import time
+import requests
 from flask import Flask, request, jsonify, send_file, send_from_directory
 from flask_cors import CORS
 import numpy as np
@@ -11,7 +14,6 @@ from reportlab.lib.pagesizes import A4
 from reportlab.lib.utils import simpleSplit
 from reportlab.lib import colors
 from urllib.parse import urljoin
-import requests
 from twilio.rest import Client
 # Firebase
 import firebase_admin
@@ -23,6 +25,19 @@ tf.config.set_visible_devices([], "GPU")
 
 app = Flask(__name__)
 CORS(app)
+
+# ------------------ KEEP ALIVE (prevents Render cold start) ------------------
+def keep_alive():
+    url = "https://skindisease-wh5y.onrender.com/"  # ✅ your Render URL
+    while True:
+        time.sleep(14 * 60)  # ping every 14 minutes
+        try:
+            requests.get(url, timeout=10)
+            print("✅ Keep-alive ping sent")
+        except Exception as e:
+            print("⚠️ Keep-alive failed:", e)
+
+threading.Thread(target=keep_alive, daemon=True).start()
 
 # ------------------ FIREBASE (LAZY LOAD) ------------------
 db = None
@@ -203,7 +218,7 @@ def find_doctors():
     try:
         lat = request.args.get("lat")
         lon = request.args.get("lon")
-        # Placeholder response — integrate Google Places API here if needed
+        # Placeholder — integrate Google Places API here if needed
         return jsonify({"doctors": [
             {"name": "Dr. Skin Specialist", "address": "Near your location"}
         ]})
