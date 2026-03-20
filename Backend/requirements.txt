@@ -1,9 +1,24 @@
-flask
-flask-cors
-tensorflow==2.15.0
-numpy
-pillow
-reportlab
-firebase-admin
-twilio
-requests
+# --- Core ---
+Flask==3.0.3
+Flask-Cors==4.0.1
+
+# --- Machine Learning ---
+#tensorflow==2.16.1
+tensorflow-cpu==2.16.1
+
+numpy==1.26.4
+Pillow==10.3.0
+
+# --- PDF Generation ---
+reportlab==4.2.2
+
+# --- Firebase Integration ---
+firebase-admin==6.5.0
+
+# --- WhatsApp / Twilio Integration ---
+twilio==9.3.2
+requests==2.32.3
+
+# --- Utilities ---
+gunicorn==22.0.0  # optional, for deployment
+
