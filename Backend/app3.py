@@ -31,7 +31,8 @@ app = Flask(__name__)
 CORS(app)
 
 # Initialize Firebase Admin SDK
-cred = credentials.Certificate("serviceAccountKey.json")
+cred_path = os.path.join(os.path.dirname(__file__), "serviceAccountKey.json")
+cred = credentials.Certificate(cred_path)
 firebase_admin.initialize_app(cred)
 db = firestore.client()
 
@@ -41,7 +42,7 @@ def load_model():
     global model
     if model is None:
         print("🧠 Loading TensorFlow model into memory...")
-        model_path = os.getenv("MODEL_PATH", "model.keras")
+        model_path = os.path.join(os.path.dirname(__file__), "model.keras")
         model = tf.keras.models.load_model(model_path)
         print("✅ Model loaded successfully!")
     return model
@@ -164,7 +165,7 @@ def preprocess_image(image_file):
     return np.expand_dims(img_array, axis=0)
 @app.route('/')
 def home():
-    return render_template('index.html')
+    return "Backend is running 🚀"
 @app.route("/api/predict", methods=["POST"])
 def predict():
     try:
@@ -451,8 +452,8 @@ def save_prescription():
         return jsonify({"error": str(e)}), 500
 
 if __name__ == "__main__":
-    port = int(os.environ.get("PORT", 5000))
-    app.run(host="0.0.0.0", port=port, debug=True)
+    port = int(os.environ.get("PORT", 10000))
+    app.run(host="0.0.0.0", port=port, debug=False)
 
 # ngrok http 5000
 # https://bria-unurbanized-adorably.ngrok-free.dev/
