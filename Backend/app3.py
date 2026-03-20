@@ -2,18 +2,17 @@ import os
 import threading
 import time
 import requests
-from flask import Flask, request, jsonify, send_file, send_from_directory
+from flask import Flask, request, jsonify
 from flask_cors import CORS
 import numpy as np
 from PIL import Image
 import tensorflow as tf
-import io, base64, uuid, tempfile
+import uuid
 from datetime import datetime
 from reportlab.pdfgen import canvas
 from reportlab.lib.pagesizes import A4
 from reportlab.lib.utils import simpleSplit
 from reportlab.lib import colors
-from urllib.parse import urljoin
 from twilio.rest import Client
 # Firebase
 import firebase_admin
@@ -29,13 +28,14 @@ CORS(app)
 # ------------------ KEEP ALIVE (prevents Render cold start) ------------------
 def keep_alive():
     url = "https://skindisease-wh5y.onrender.com/"  # ✅ your Render URL
+    time.sleep(60)  # ✅ wait 60s for server to fully start before first ping
     while True:
-        time.sleep(14 * 60)  # ping every 14 minutes
         try:
             requests.get(url, timeout=10)
             print("✅ Keep-alive ping sent")
         except Exception as e:
             print("⚠️ Keep-alive failed:", e)
+        time.sleep(14 * 60)  # ping every 14 minutes
 
 threading.Thread(target=keep_alive, daemon=True).start()
 
