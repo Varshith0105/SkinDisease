@@ -31,7 +31,8 @@ app = Flask(__name__)
 CORS(app)
 
 # Initialize Firebase Admin SDK
-cred = credentials.Certificate("serviceAccountKey.json")
+cred_path = os.path.join(os.path.dirname(__file__), "serviceAccountKey.json")
+cred = credentials.Certificate(cred_path)
 firebase_admin.initialize_app(cred)
 db = firestore.client()
 
@@ -41,7 +42,7 @@ def load_model():
     global model
     if model is None:
         print("🧠 Loading TensorFlow model into memory...")
-        model_path = os.getenv("MODEL_PATH", "model.keras")
+        model_path = os.path.join(os.path.dirname(__file__), "model.keras")
         model = tf.keras.models.load_model(model_path)
         print("✅ Model loaded successfully!")
     return model
