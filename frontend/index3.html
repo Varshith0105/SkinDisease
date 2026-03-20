@@ -1,219 +1,638 @@
-import os
-from flask import Flask, request, jsonify, send_file, send_from_directory
-from flask_cors import CORS
-import numpy as np
-from PIL import Image
-import tensorflow as tf
-import io, base64, uuid, tempfile
-from datetime import datetime
-from reportlab.pdfgen import canvas
-from reportlab.lib.pagesizes import A4
-from reportlab.lib.utils import simpleSplit
-from reportlab.lib import colors
-from urllib.parse import urljoin
-import requests
-from twilio.rest import Client
-# Firebase
-import firebase_admin
-from firebase_admin import credentials, firestore
- 
-# ✅ TensorFlow safe settings
-os.environ["TF_CPP_MIN_LOG_LEVEL"] = "3"
-tf.config.set_visible_devices([], "GPU")
- 
-app = Flask(__name__)
-CORS(app)
- 
-# ------------------ FIREBASE (LAZY LOAD) ------------------
-db = None
- 
-def init_firebase():
-    global db
-    if db is None:
-        try:
-            cred_path = os.path.join(os.path.dirname(__file__), "serviceAccountKey.json")
-            cred = credentials.Certificate(cred_path)
-            firebase_admin.initialize_app(cred)
-            db = firestore.client()
-            print("✅ Firebase initialized")
-        except Exception as e:
-            print("❌ Firebase error:", e)
- 
-# ------------------ MODEL (LAZY LOAD) ------------------
-model = None
- 
-def load_model():
-    global model
-    if model is None:
-        print("🧠 Loading model...")
-        model_path = os.path.join(os.path.dirname(__file__), "model.keras")
-        model = tf.keras.models.load_model(model_path)
-        print("✅ Model loaded")
-    return model
- 
-# ------------------ CONSTANTS ------------------
-CLASSES = [
-    "eczema", "warts_molluscum_viral", "melanoma", "atopic_dermatitis",
-    "Basal Cell Carcinoma", "Melanocytic Nevi", "Benign Keratosis-like Lesions ",
-    "psoriasis_lichen", "seborrheic_keratoses", "tinea_fungal"
-]
- 
-# ------------------ DISEASE INFO ------------------
-DISEASE_INFO = {
-    "eczema": {
-        "description": [
-            "Eczema is a condition that makes your skin red and itchy. It is common in children but can occur at any age.",
-            "It tends to flare periodically and may be accompanied by asthma or hay fever."
-        ],
-        "medication": "Apply prescribed topical corticosteroids or calcineurin inhibitors. Antihistamines can relieve itching.",
-        "diet": "Avoid dairy, gluten, and processed foods. Include omega-3 rich foods like salmon and flaxseed."
-    },
-    "warts_molluscum_viral": {
-        "description": [
-            "Warts and molluscum are common viral skin infections caused by HPV and poxvirus respectively.",
-            "They appear as small, raised bumps and are contagious through direct contact."
-        ],
-        "medication": "Salicylic acid treatments, cryotherapy, or prescribed antiviral creams.",
-        "diet": "Boost immunity with Vitamin C-rich foods, zinc, and probiotics."
-    },
-    "melanoma": {
-        "description": [
-            "Melanoma is the most serious type of skin cancer, developing in the cells that give skin its color.",
-            "Early detection is critical for successful treatment."
-        ],
-        "medication": "Requires immediate medical attention. Treatment may include surgery, immunotherapy, or targeted therapy.",
-        "diet": "Antioxidant-rich diet: berries, leafy greens, green tea. Avoid processed meats and alcohol."
-    },
-    "atopic_dermatitis": {
-        "description": [
-            "Atopic dermatitis is a chronic inflammatory skin condition causing itchy, inflamed skin.",
-            "It often begins in childhood and can persist into adulthood."
-        ],
-        "medication": "Moisturizers, topical corticosteroids, dupilumab (Dupixent) for severe cases.",
-        "diet": "Avoid known triggers. Include anti-inflammatory foods like turmeric, fish oil, and vegetables."
-    },
-    "Basal Cell Carcinoma": {
-        "description": [
-            "Basal cell carcinoma is the most common form of skin cancer.",
-            "It rarely spreads but must be treated promptly to prevent local tissue damage."
-        ],
-        "medication": "Surgical removal, Mohs surgery, or topical chemotherapy cream (Efudex). Consult a dermatologist.",
-        "diet": "High antioxidant diet, Vitamin D from safe sun exposure, avoid smoking."
-    },
-    "Melanocytic Nevi": {
-        "description": [
-            "Melanocytic nevi are common benign moles formed by clusters of pigmented cells.",
-            "Most are harmless but should be monitored for changes in size, shape, or color."
-        ],
-        "medication": "Usually no treatment needed. Surgical removal if suspicious or cosmetically bothersome.",
-        "diet": "No specific diet required. Maintain sun protection habits."
-    },
-    "Benign Keratosis-like Lesions ": {
-        "description": [
-            "Benign keratosis includes non-cancerous growths on the skin surface.",
-            "They are common with aging and generally harmless."
-        ],
-        "medication": "Cryotherapy or curettage if removal desired. No medical treatment usually required.",
-        "diet": "Stay hydrated. Vitamin E and C-rich foods help maintain healthy skin."
-    },
-    "psoriasis_lichen": {
-        "description": [
-            "Psoriasis is a chronic autoimmune condition causing rapid skin cell buildup, resulting in scales and red patches.",
-            "Lichen planus is an inflammatory condition affecting skin and mucous membranes."
-        ],
-        "medication": "Topical treatments, phototherapy, systemic medications like methotrexate or biologics.",
-        "diet": "Anti-inflammatory diet: fish, olive oil, leafy greens. Avoid alcohol and red meat."
-    },
-    "seborrheic_keratoses": {
-        "description": [
-            "Seborrheic keratoses are common noncancerous skin growths that appear as waxy, scaly, slightly raised growths.",
-            "They are more common in older adults."
-        ],
-        "medication": "Cryotherapy or electrosurgery if removal is desired. No treatment needed if asymptomatic.",
-        "diet": "Balanced diet with antioxidants. Staying hydrated keeps skin healthy."
-    },
-    "tinea_fungal": {
-        "description": [
-            "Tinea is a fungal infection of the skin, scalp, or nails, commonly known as ringworm or athlete's foot.",
-            "It is contagious and spreads through contact with infected skin or surfaces."
-        ],
-        "medication": "Antifungal creams like clotrimazole or terbinafine. Oral antifungals for severe cases.",
-        "diet": "Reduce sugar and refined carbs. Include garlic, coconut oil, and probiotics to fight fungal growth."
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>Smart Skin Health | AI Dermatology Assistant</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;700&display=swap" rel="stylesheet">
+  <style>
+    :root {
+      --brand-primary: #58a6ff;
+      --brand-secondary: #0d8eff;
+      --bg-dark: #0d1117;
+      --bg-medium: #161b22;
+      --border-color: #30363d;
+      --text-primary: #c9d1d9;
+      --text-secondary: #8b949e;
+      --font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
     }
-}
- 
-# ------------------ ROUTES ------------------
-@app.route('/')
-def home():
-    return "Backend is LIVE 🚀"
- 
- 
-@app.route("/api/predict", methods=["POST"])
-def predict():
-    try:
-        if 'image' not in request.files:
-            return jsonify({"error": "No image file provided"}), 400
- 
-        img = Image.open(request.files['image']).convert("RGB")
-        img = img.resize((224, 224))
-        img_array = np.array(img) / 255.0
-        img_array = np.expand_dims(img_array, axis=0)
- 
-        model_instance = load_model()
-        preds = model_instance.predict(img_array)
-        pred_class = CLASSES[int(np.argmax(preds))]
- 
-        # ✅ Get disease info with fallback
-        info = DISEASE_INFO.get(pred_class, {
-            "description": ["No detailed information available for this condition."],
-            "medication": "Please consult a dermatologist for proper treatment.",
-            "diet": "Maintain a balanced and healthy diet."
-        })
- 
-        return jsonify({
-            "disease": pred_class,
-            "description": info["description"],
-            "medication": info["medication"],
-            "diet": info["diet"]
-        })
- 
-    except Exception as e:
-        print("❌ Prediction error:", e)
-        return jsonify({"error": "Prediction failed"}), 500
- 
- 
-@app.route("/api/save-prescription", methods=["POST"])
-def save_prescription():
-    try:
-        init_firebase()
-        data = request.json
-        doc_id = str(uuid.uuid4())
-        db.collection("predictions").document(doc_id).set({
-            "data": data,
-            "createdAt": datetime.utcnow().isoformat()
-        })
-        return jsonify({"message": "Saved", "id": doc_id})
-    except Exception as e:
-        print("❌ Save error:", e)
-        return jsonify({"error": str(e)}), 500
- 
- 
-@app.route("/find_doctors", methods=["GET"])
-def find_doctors():
-    try:
-        lat = request.args.get("lat")
-        lon = request.args.get("lon")
-        # Placeholder response — integrate Google Places API here if needed
-        return jsonify({"doctors": [
-            {"name": "Dr. Skin Specialist", "address": "Near your location"}
-        ]})
-    except Exception as e:
-        print("❌ Doctors error:", e)
-        return jsonify({"error": str(e)}), 500
- 
- 
-# ------------------ RUN ------------------
-if __name__ == "__main__":
-    port = int(os.environ.get("PORT", 10000))
-    print(f"🚀 Running on port {port}")
-    app.run(host="0.0.0.0", port=port)
+
+    .light-theme {
+        --brand-primary: #007bff;
+        --brand-secondary: #0056b3;
+        --bg-dark: #ffffff;
+        --bg-medium: #f8f9fa;
+        --border-color: #dee2e6;
+        --text-primary: #212529;
+        --text-secondary: #6c757d;
+    }
+
+    *, *::before, *::after { box-sizing: border-box; }
+    html { scroll-behavior: smooth; }
+    body {
+      margin: 0;
+      font-family: var(--font-family);
+      background-color: var(--bg-dark);
+      color: var(--text-primary);
+      font-size: 16px;
+      display: flex;
+      flex-direction: column;
+      min-height: 100vh;
+      transition: background-color 0.3s ease, color 0.3s ease;
+    }
+    main { flex-grow: 1; }
+    h1, h2, h3, h4 { margin: 0; font-weight: 700; }
+    p { margin: 0; line-height: 1.6; }
+    .hidden { display: none; }
+    .container { max-width: 800px; margin: 0 auto; padding: 4rem 1.5rem; }
+    .section-title { text-align: center; color: var(--brand-primary); margin-bottom: 2rem; font-size: 2.5rem; }
+
+    /* --- Header --- */
+    header {
+      background: rgba(13, 17, 23, 0.8);
+      backdrop-filter: blur(10px);
+      padding: 1rem 2rem;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      position: sticky;
+      top: 0;
+      z-index: 1000;
+      border-bottom: 1px solid var(--border-color);
+    }
+    .light-theme header { background: rgba(255, 255, 255, 0.8); }
+    .logo { font-size: 1.25rem; font-weight: 700; color: var(--brand-primary); }
+    nav { display: flex; align-items: center; gap: 1rem; }
+    nav a { margin: 0 0.5rem; font-weight: 500; color: var(--text-primary); cursor: pointer; transition: color 0.2s ease; text-decoration: none; }
+    nav a:hover { color: var(--brand-primary); }
+
+    /* --- Theme Toggle --- */
+    .theme-switch-wrapper { display: flex; align-items: center; }
+    .theme-switch { display: inline-block; height: 24px; position: relative; width: 44px; margin-left: 1rem; }
+    .theme-switch input { display: none; }
+    .slider { background-color: #30363d; bottom: 0; cursor: pointer; left: 0; position: absolute; right: 0; top: 0; transition: .4s; border-radius: 34px; }
+    .slider:before { background-color: #fff; bottom: 4px; content: ""; height: 16px; left: 4px; position: absolute; transition: .4s; width: 16px; border-radius: 50%; }
+    input:checked + .slider { background-color: var(--brand-primary); }
+    input:checked + .slider:before { transform: translateX(20px); }
+
+    /* --- Buttons --- */
+    .btn {
+      display: inline-flex; align-items: center; justify-content: center; gap: 0.5rem;
+      padding: 12px 24px; border: none; border-radius: 8px; font-weight: 500;
+      font-size: 1rem; cursor: pointer; transition: all 0.2s ease; text-decoration: none;
+      font-family: var(--font-family);
+    }
+    .btn-primary { background-color: var(--brand-primary); color: #fff; }
+    .btn-primary:hover:not(:disabled) { background-color: var(--brand-secondary); transform: translateY(-2px); box-shadow: 0 4px 15px rgba(13, 142, 255, 0.3); }
+    .btn-secondary { background: transparent; color: var(--text-primary); border: 1px solid var(--border-color); }
+    .btn-secondary:hover { background: var(--bg-medium); border-color: var(--text-secondary); }
+    .btn:disabled { background-color: #30363d; color: var(--text-secondary); cursor: not-allowed; transform: none; box-shadow: none; opacity: 0.6; }
+
+    /* --- Modal --- */
+    .modal-overlay {
+      position: fixed; top: 0; left: 0; width: 100%; height: 100%;
+      background-color: rgba(0,0,0,0.7); display: flex; justify-content: center;
+      align-items: center; z-index: 2000; backdrop-filter: blur(5px);
+      opacity: 1; transition: opacity 0.3s ease;
+    }
+    .modal-overlay.hidden { opacity: 0; pointer-events: none; }
+    .modal-content { max-width: 400px; width: 90%; display: flex; flex-direction: column; align-items: center; transform: scale(1); transition: transform 0.3s ease, opacity 0.3s ease; }
+    .modal-overlay.hidden .modal-content { transform: scale(0.95); }
+
+    /* --- Hero --- */
+    .hero { text-align: center; padding: 6rem 1.5rem 4rem; }
+    .hero h1 { font-size: 3.5rem; color: var(--text-primary); margin-bottom: 1rem; }
+    .hero h1 span { color: var(--brand-primary); }
+    .hero p { max-width: 600px; margin: 0 auto 2rem auto; font-size: 1.2rem; color: var(--text-secondary); }
+    .features-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(250px, 1fr)); gap: 1.5rem; max-width: 900px; margin: 4rem auto 0; text-align: left; }
+    .feature-card { background-color: var(--bg-medium); padding: 1.5rem; border-radius: 12px; border: 1px solid var(--border-color); transition: transform 0.2s ease, box-shadow 0.2s ease; }
+    .feature-card:hover { transform: translateY(-4px); box-shadow: 0 8px 20px rgba(88, 166, 255, 0.2); }
+    .feature-card h4 { color: var(--text-primary); margin-bottom: 0.5rem; }
+    .feature-card p { color: var(--text-secondary); font-size: 0.95rem; }
+
+    /* --- Card --- */
+    .card { background-color: var(--bg-medium); border: 1px solid var(--border-color); border-radius: 12px; padding: 2rem; box-shadow: 0 8px 30px rgba(0,0,0,0.2); }
+    .light-theme .card { box-shadow: 0 8px 20px rgba(0,0,0,0.07); }
+    #about .card h4 { color: var(--brand-primary); margin-bottom: 0.5rem; font-size: 1.25rem; }
+    #about .card p { color: var(--text-secondary); }
+    #about .card > div:not(:last-child) { margin-bottom: 1.5rem; }
+
+    /* --- Upload --- */
+    #upload .card { text-align: center; }
+    #image-input { display: none; }
+    .upload-area { border: 2px dashed var(--border-color); border-radius: 12px; padding: 2rem; margin-bottom: 1.5rem; cursor: pointer; transition: border-color 0.2s ease, background-color 0.2s ease; }
+    .upload-area:hover { border-color: var(--brand-primary); background-color: rgba(88, 166, 255, 0.05); }
+    .upload-area p { color: var(--text-secondary); margin-top: 1rem; }
+    .upload-preview { min-height: 250px; display: flex; align-items: center; justify-content: center; }
+    .upload-preview img { max-width: 100%; max-height: 300px; object-fit: contain; border-radius: 8px; box-shadow: 0 4px 15px rgba(0,0,0,0.3); }
+
+    /* --- Form --- */
+    .form-group { text-align: left; }
+    .form-group label { display: block; margin-bottom: 0.5rem; color: var(--text-primary); font-weight: 500; }
+    .form-group input, .form-group select {
+      width: 100%; padding: 12px; border-radius: 8px; border: 1px solid var(--border-color);
+      background: var(--bg-dark); color: var(--text-primary); font-size: 1rem;
+      font-family: var(--font-family); transition: border-color 0.2s ease, box-shadow 0.2s ease;
+    }
+    .form-group input:focus, .form-group select:focus { outline: none; border-color: var(--brand-primary); box-shadow: 0 0 0 3px rgba(88, 166, 255, 0.1); }
+    .light-theme input, .light-theme select { background: #ffffff !important; border-color: #dee2e6 !important; color: #212529 !important; }
+    .light-theme input:focus, .light-theme select:focus { border-color: var(--brand-primary) !important; box-shadow: 0 0 0 3px rgba(0, 123, 255, 0.1) !important; }
+    .light-theme input::placeholder { color: #6c757d; }
+
+    /* --- Results --- */
+    .result-grid { display: grid; gap: 1.5rem; }
+    .result-card, .doctor-card { background-color: var(--bg-medium); border: 1px solid var(--border-color); border-radius: 12px; padding: 1.5rem; }
+    .result-card h3 { color: var(--brand-primary); margin-bottom: 1rem; font-size: 1.2rem; }
+    .result-item { display: flex; justify-content: space-between; align-items: center; padding: 0.5rem 0; }
+    .result-item b { font-size: 1.5rem; color: var(--text-primary); }
+    #result-advice { white-space: pre-wrap; color: var(--text-secondary); line-height: 1.8; }
+    #doctor-list { display: grid; gap: 1rem; }
+    .doctor-card { padding: 1rem 1.5rem; transition: transform 0.2s ease; }
+    .doctor-card:hover { transform: translateX(4px); border-color: var(--brand-primary); }
+
+    /* --- Footer --- */
+    footer { background-color: var(--bg-dark); border-top: 1px solid var(--border-color); padding: 3rem 1.5rem; color: var(--text-secondary); }
+    .footer-content { max-width: 1000px; margin: 0 auto; display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 2rem; text-align: left; }
+    .footer-column h4 { color: var(--text-primary); margin-bottom: 1rem; }
+    .footer-column p, .footer-column a { font-size: 0.95rem; color: var(--text-secondary); text-decoration: none; display: block; margin-bottom: 0.5rem; transition: color 0.2s ease; cursor: pointer; }
+    .footer-column a:hover { color: var(--brand-primary); }
+    .footer-bottom { text-align: center; margin-top: 3rem; padding-top: 1.5rem; border-top: 1px solid var(--border-color); font-size: 0.9rem; }
+
+    /* --- Responsive --- */
+    @media (max-width: 768px) {
+      .hero h1 { font-size: 2.5rem; }
+      .container { padding: 3rem 1rem; }
+      header { padding: 1rem; }
+      .footer-content { text-align: center; }
+      nav { gap: 0.5rem; }
+      nav a { margin: 0; font-size: 0.9rem; }
+    }
+  </style>
+</head>
+<body>
+
+  <header>
+    <div class="logo">Smart Skin Health</div>
+    <nav>
+      <a onclick="goTo('landing')">Home</a>
+      <a onclick="goTo('about')">About</a>
+      <div class="theme-switch-wrapper">
+        <label class="theme-switch" for="theme-toggle">
+          <input type="checkbox" id="theme-toggle" />
+          <span class="slider"></span>
+        </label>
+      </div>
+    </nav>
+  </header>
+
+  <main>
+
+    <!-- LANDING -->
+    <section id="landing" class="hero">
+      <h1>Your Personal AI <span>Dermatology Assistant</span></h1>
+      <p>Upload an image of a skin condition and get instant, AI-powered insights. Fast, private, and informative.</p>
+      <button class="btn btn-primary" onclick="goTo('upload')">Get Started Now</button>
+      <div class="features-grid">
+        <div class="feature-card">
+          <h4>⚡ Instant AI Analysis</h4>
+          <p>Our model, trained on thousands of images, provides a quick preliminary analysis of your skin condition.</p>
+        </div>
+        <div class="feature-card">
+          <h4>🧑‍⚕️ Actionable Guidance</h4>
+          <p>Receive clear, concise advice and information, helping you have a more informed discussion with a doctor.</p>
+        </div>
+        <div class="feature-card">
+          <h4>🔒 100% Private & Secure</h4>
+          <p>Your images are processed anonymously and are never stored. Your privacy is our top priority.</p>
+        </div>
+      </div>
+    </section>
+
+    <!-- ABOUT -->
+    <section id="about" class="container hidden">
+      <h2 class="section-title">Bridging Technology and Your Health</h2>
+      <div class="card">
+        <div>
+          <p>Navigating skin health concerns can be stressful and confusing. Smart Skin Health was created to empower you with immediate, data-driven insights so you can take the next step with confidence.</p>
+        </div>
+        <div>
+          <h4>How It Works</h4>
+          <p>Our advanced AI analyzes your image against a vast database of dermatological conditions to provide a preliminary analysis in seconds.</p>
+        </div>
+        <div>
+          <h4>Our Philosophy</h4>
+          <p>We believe technology works best when it supports—not replaces—professional medical expertise. A final diagnosis should always come from a certified medical professional.</p>
+        </div>
+      </div>
+    </section>
+
+    <!-- UPLOAD -->
+    <section id="upload" class="container hidden">
+      <h2 class="section-title">Analyze Your Image</h2>
+      <div class="card">
+        <label for="image-input" class="upload-area" id="upload-label">
+          <div class="upload-preview" id="preview">
+            <div>
+              <svg width="60" height="60" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1" stroke-linecap="round" stroke-linejoin="round" style="color: var(--text-secondary);"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><polyline points="17 8 12 3 7 8"></polyline><line x1="12" y1="3" x2="12" y2="15"></line></svg>
+              <p>Click or drag image to upload</p>
+            </div>
+          </div>
+        </label>
+        <input id="image-input" type="file" accept="image/*" onchange="previewImage(event)"/>
+
+        <div id="patient-details-form" style="margin-top: 2rem; padding-top: 2rem; border-top: 1px solid var(--border-color);">
+          <h3 style="color: var(--brand-primary); margin-bottom: 1.5rem; text-align: center;">Patient Information</h3>
+          <form id="combined-form" style="display: grid; gap: 1.5rem;">
+
+            <div class="form-group">
+              <label for="name">Patient Name *</label>
+              <input type="text" id="name" required placeholder="Enter patient name">
+            </div>
+
+            <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 1rem;">
+              <div class="form-group">
+                <label for="age">Age *</label>
+                <input type="number" id="age" required min="1" max="120" placeholder="Enter age">
+              </div>
+              <div class="form-group">
+                <label for="gender">Gender *</label>
+                <select id="gender" required>
+                  <option value="">Select Gender</option>
+                  <option value="Male">Male</option>
+                  <option value="Female">Female</option>
+                  <option value="Other">Other</option>
+                </select>
+              </div>
+            </div>
+
+            <div class="form-group">
+              <label for="whatsapp">WhatsApp Number *</label>
+              <input type="tel" id="whatsapp" placeholder="+91XXXXXXXXXX" required pattern="^\+91[0-9]{10}$">
+              <small style="display: block; margin-top: 0.5rem; color: var(--text-secondary); font-size: 0.875rem;">
+                Include country code (e.g., +91 for India)
+              </small>
+            </div>
+
+            <div style="display: flex; justify-content: center; gap: 1rem; margin-top: 0.5rem;">
+              <button type="submit" id="analyze-btn" class="btn btn-primary" disabled>
+                🔬 Analyze & Process
+              </button>
+            </div>
+
+          </form>
+        </div>
+      </div>
+    </section>
+
+    <!-- PROCESSING -->
+    <section id="processing" class="container hidden" style="text-align:center;">
+      <h2 class="section-title">Analyzing...</h2>
+      <p style="color: var(--text-secondary); margin-bottom: 2rem;">Our AI is processing your image. This won't take long.</p>
+      <div style="width: 100%; max-width: 500px; height: 8px; background: var(--bg-medium); border-radius: 4px; overflow: hidden; margin: 20px auto;">
+        <div id="progress" style="height: 100%; width: 0%; background: var(--brand-primary); transition: width 0.3s;"></div>
+      </div>
+      <p id="processing-status" style="color: var(--text-secondary); margin-top: 1rem; font-size: 0.9rem;"></p>
+    </section>
+
+    <!-- RESULTS -->
+    <section id="results" class="container hidden">
+      <h2 class="section-title">Analysis Complete</h2>
+
+      <div class="result-card" style="margin-bottom: 1.5rem;">
+        <h3 style="color: var(--brand-primary); margin-bottom: 1rem;">Patient Information</h3>
+        <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 1rem;">
+          <div>
+            <span style="color: var(--text-secondary); font-size: 0.9rem;">Name</span>
+            <p style="font-weight: 500; margin-top: 0.25rem;" id="display-name">-</p>
+          </div>
+          <div>
+            <span style="color: var(--text-secondary); font-size: 0.9rem;">Age</span>
+            <p style="font-weight: 500; margin-top: 0.25rem;" id="display-age">-</p>
+          </div>
+          <div>
+            <span style="color: var(--text-secondary); font-size: 0.9rem;">Gender</span>
+            <p style="font-weight: 500; margin-top: 0.25rem;" id="display-gender">-</p>
+          </div>
+        </div>
+      </div>
+
+      <div class="result-grid">
+        <div class="result-card">
+          <h3>Most Likely Condition</h3>
+          <div class="result-item">
+            <span style="color:var(--text-secondary)">Prediction</span>
+            <b id="result-disease">-</b>
+          </div>
+        </div>
+        <div class="result-card">
+          <h3>Prevention & Treatment Advice</h3>
+          <p id="result-advice">-</p>
+        </div>
+      </div>
+
+      <div style="text-align: center; margin-top: 2rem; display: flex; justify-content: center; gap: 1rem; flex-wrap: wrap;">
+        <button class="btn btn-primary" onclick="generateAndSendPDF()" id="send-pdf-btn">
+          Generate & Send PDF to WhatsApp
+        </button>
+        <button class="btn btn-primary" onclick="fetchDoctors()">
+          Find Doctors Near Me
+        </button>
+        <button class="btn btn-secondary" onclick="goTo('upload'); resetForm()">
+          Analyze Another Image
+        </button>
+      </div>
+
+      <div id="pdf-success" class="hidden" style="margin-top: 2rem; padding: 1.5rem; background: rgba(88, 166, 255, 0.1); border: 1px solid var(--brand-primary); border-radius: 12px; text-align: center;">
+        <h3 style="color: var(--brand-primary); margin-bottom: 0.5rem;">✅ Report Sent Successfully!</h3>
+        <p style="color: var(--text-secondary); margin-bottom: 1rem;">PDF report has been generated and sent to WhatsApp</p>
+        <a id="pdf-download-link" href="#" download="DermaAssist_Report.pdf" class="btn btn-secondary" style="text-decoration: none;">
+          📥 Download PDF
+        </a>
+      </div>
+    </section>
+
+    <!-- DOCTORS -->
+    <section id="doctors" class="container hidden">
+      <h2 class="section-title">Doctors Near You</h2>
+      <p style="text-align:center; color: var(--text-secondary); margin-bottom: 2rem;">Based on your location: <b id="location-name" style="color: var(--text-primary)">-</b></p>
+      <div id="doctor-list"></div>
+      <div style="text-align: center; margin-top: 2rem;">
+        <button class="btn btn-secondary" onclick="goTo('results')">← Back to Results</button>
+      </div>
+    </section>
+
+  </main>
+
+  <!-- ERROR MODAL -->
+  <div id="error-modal" class="modal-overlay hidden">
+    <div class="modal-content card">
+      <h3 style="color: #ff8585; margin-bottom: 1rem; text-align: center;">⚠️ Analysis Failed</h3>
+      <p id="error-message" style="color: var(--text-secondary); text-align: center; margin-bottom: 1.5rem;"></p>
+      <button class="btn btn-primary" onclick="hideErrorModal()">Got it</button>
+    </div>
+  </div>
+
+  <footer>
+    <div class="footer-content">
+      <div class="footer-column">
+        <h4>About Smart Skin Health</h4>
+        <p>An AI-powered informational tool to provide preliminary insights into skin conditions, encouraging informed consultations with dermatologists.</p>
+      </div>
+      <div class="footer-column">
+        <h4>Quick Links</h4>
+        <a onclick="goTo('landing')">Home</a>
+        <a onclick="goTo('about')">About Us</a>
+        <a onclick="goTo('upload')">Start Analysis</a>
+      </div>
+      <div class="footer-column">
+        <h4>Important Notice</h4>
+        <p>This tool is not a medical diagnosis. Always consult a qualified medical professional for any health concerns.</p>
+      </div>
+    </div>
+    <div class="footer-bottom">
+      <p>© 2025 Smart Skin Health. All Rights Reserved.</p>
+    </div>
+  </footer>
+
+  <script>
+    // ✅ UPDATE THIS to your actual Render backend URL
+    const API_URL = 'https://skindisease-wh5y.onrender.com';
+    let currentPatientData = null;
+
+    // ---------- Navigation ----------
+    function goTo(id) {
+      document.querySelectorAll("main > section").forEach(sec => sec.classList.add("hidden"));
+      const target = document.getElementById(id);
+      if (target) target.classList.remove("hidden");
+      window.scrollTo({ top: 0, behavior: 'smooth' });
+    }
+
+    // ---------- Modal ----------
+    function showErrorModal(message) {
+      document.getElementById('error-message').innerText = message;
+      document.getElementById('error-modal').classList.remove('hidden');
+    }
+
+    function hideErrorModal() {
+      document.getElementById('error-modal').classList.add('hidden');
+      goTo('upload');
+    }
+
+    // ---------- Image Preview ----------
+    function previewImage(event) {
+      const file = event.target.files[0];
+      const analyzeBtn = document.getElementById("analyze-btn");
+      const preview = document.getElementById("preview");
+      if (file) {
+        const img = document.createElement("img");
+        img.src = URL.createObjectURL(file);
+        preview.innerHTML = "";
+        preview.appendChild(img);
+        analyzeBtn.disabled = false;
+      } else {
+        preview.innerHTML = `<div><svg width="60" height="60" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1" stroke-linecap="round" stroke-linejoin="round" style="color: var(--text-secondary);"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><polyline points="17 8 12 3 7 8"></polyline><line x1="12" y1="3" x2="12" y2="15"></line></svg><p>Click or drag image to upload</p></div>`;
+        analyzeBtn.disabled = true;
+      }
+    }
+
+    // ---------- Reset Form ----------
+    function resetForm() {
+      document.getElementById('combined-form').reset();
+      document.getElementById('analyze-btn').disabled = true;
+      document.getElementById('preview').innerHTML = `<div><svg width="60" height="60" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1" stroke-linecap="round" stroke-linejoin="round" style="color: var(--text-secondary);"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><polyline points="17 8 12 3 7 8"></polyline><line x1="12" y1="3" x2="12" y2="15"></line></svg><p>Click or drag image to upload</p></div>`;
+      document.getElementById('pdf-success').classList.add('hidden');
+    }
+
+    // ---------- Progress Bar Animation ----------
+    function animateProgress(targetPct, duration) {
+      const bar = document.getElementById('progress');
+      let current = parseInt(bar.style.width) || 0;
+      const steps = 30;
+      const increment = (targetPct - current) / steps;
+      const interval = duration / steps;
+      let i = 0;
+      const timer = setInterval(() => {
+        current += increment;
+        bar.style.width = Math.min(current, targetPct) + '%';
+        i++;
+        if (i >= steps) clearInterval(timer);
+      }, interval);
+    }
+
+    // ---------- MAIN SUBMIT ----------
+    document.getElementById('combined-form').addEventListener('submit', async function (e) {
+      e.preventDefault();
+
+      const file = document.getElementById('image-input').files[0];
+      if (!file) {
+        showErrorModal("Please select an image.");
+        return;
+      }
+
+      currentPatientData = {
+        name: document.getElementById('name').value,
+        age: document.getElementById('age').value,
+        gender: document.getElementById('gender').value,
+        whatsapp: document.getElementById('whatsapp').value
+      };
+
+      goTo('processing');
+      document.getElementById('progress').style.width = '0%';
+      document.getElementById('processing-status').innerText = 'Sending image to server...';
+      animateProgress(40, 800);
+
+      const formData = new FormData();
+      formData.append('image', file);
+
+      try {
+        document.getElementById('processing-status').innerText = 'AI is analyzing your image...';
+        animateProgress(80, 1200);
+
+        const response = await fetch(`${API_URL}/api/predict`, {
+          method: 'POST',
+          body: formData,
+        });
+
+        // ✅ SAFE: Read raw text first, then parse JSON
+        const text = await response.text();
+        let data;
+
+        try {
+          data = JSON.parse(text);
+        } catch {
+          // Render cold start returns plain text like "Your space is spinning up..."
+          console.error("Non-JSON response from server:", text);
+          throw new Error("🕐 Server is waking up (Render cold start). Please wait 30–60 seconds and try again.");
+        }
+
+        if (!response.ok) {
+          throw new Error(data.error || `Server error: ${response.status}`);
+        }
+
+        animateProgress(100, 400);
+
+        // ✅ Populate results
+        document.getElementById('result-disease').innerText = data.disease || "Unknown";
+
+        let advice = '';
+        if (data.description && Array.isArray(data.description)) {
+          advice += data.description.join(' ') + "\n\n";
+        }
+        if (data.medication) {
+          advice += "💊 Medication: " + data.medication + "\n\n";
+        }
+        if (data.diet) {
+          advice += "🍎 Diet Tips: " + data.diet;
+        }
+        document.getElementById('result-advice').innerText = advice.trim() || "No advice available. Please consult a dermatologist.";
+
+        document.getElementById('display-name').innerText   = currentPatientData.name;
+        document.getElementById('display-age').innerText    = currentPatientData.age;
+        document.getElementById('display-gender').innerText = currentPatientData.gender;
+
+        setTimeout(() => goTo('results'), 300);
+
+      } catch (err) {
+        console.error("Prediction error:", err);
+        showErrorModal(err.message || "An unexpected error occurred. Please try again.");
+      }
+    });
+
+    // ---------- PDF ----------
+    async function generateAndSendPDF() {
+      const btn = document.getElementById('send-pdf-btn');
+      btn.disabled = true;
+      btn.innerText = '⏳ Sending...';
+
+      try {
+        const response = await fetch(`${API_URL}/api/save-prescription`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            ...currentPatientData,
+            disease: document.getElementById('result-disease').innerText
+          })
+        });
+
+        const text = await response.text();
+        let data;
+        try {
+          data = JSON.parse(text);
+        } catch {
+          throw new Error("Server returned an invalid response.");
+        }
+
+        if (!response.ok) throw new Error(data.error || "Failed to save prescription.");
+
+        document.getElementById('pdf-success').classList.remove('hidden');
+        btn.innerText = '✅ Sent!';
+
+      } catch (err) {
+        console.error("PDF error:", err);
+        showErrorModal("PDF generation failed: " + err.message);
+        btn.disabled = false;
+        btn.innerText = 'Generate & Send PDF to WhatsApp';
+      }
+    }
+
+    // ---------- Doctors ----------
+    function fetchDoctors() {
+      if (!navigator.geolocation) {
+        showErrorModal("Geolocation is not supported by your browser.");
+        return;
+      }
+      navigator.geolocation.getCurrentPosition(
+        async (pos) => {
+          const { latitude, longitude } = pos.coords;
+          try {
+            const res = await fetch(`${API_URL}/find_doctors?lat=${latitude}&lon=${longitude}`);
+            const text = await res.text();
+            let data;
+            try {
+              data = JSON.parse(text);
+            } catch {
+              throw new Error("Invalid response from doctors API.");
+            }
+
+            const list = document.getElementById('doctor-list');
+            list.innerHTML = "";
+
+            if (data.doctors && data.doctors.length > 0) {
+              data.doctors.forEach(d => {
+                list.innerHTML += `
+                  <div class="doctor-card">
+                    <h4 style="color: var(--brand-primary); margin-bottom: 0.5rem;">${d.name}</h4>
+                    <p style="color: var(--text-secondary); font-size: 0.9rem;">${d.address}</p>
+                  </div>`;
+              });
+            } else {
+              list.innerHTML = `<p style="color: var(--text-secondary); text-align: center;">No doctors found near your location.</p>`;
+            }
+
+            document.getElementById('location-name').innerText = `${latitude.toFixed(4)}, ${longitude.toFixed(4)}`;
+            goTo('doctors');
+
+          } catch (err) {
+            showErrorModal("Could not fetch doctors: " + err.message);
+          }
+        },
+        () => {
+          showErrorModal("Location access denied. Please allow location access and try again.");
+        }
+      );
+    }
+
+    // ---------- Theme Toggle ----------
+    document.getElementById('theme-toggle').addEventListener('change', function () {
+      document.body.classList.toggle('light-theme', this.checked);
+    });
+
+    // ---------- Init ----------
+    document.addEventListener('DOMContentLoaded', () => {
+      goTo('landing');
+    });
+  </script>
+</body>
+</html>
