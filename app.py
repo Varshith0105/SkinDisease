@@ -1,5 +1,5 @@
 import os
-from flask import Flask, request, jsonify
+from flask import Flask, request, jsonify, send_from_directory
 from flask_cors import CORS
 import numpy as np
 from PIL import Image
@@ -15,7 +15,7 @@ from firebase_admin import credentials, firestore
 os.environ["TF_CPP_MIN_LOG_LEVEL"] = "3"
 tf.config.set_visible_devices([], "GPU")
 
-app = Flask(__name__)
+app = Flask(__name__, static_folder="static")
 CORS(app)
 
 # ------------------ FIREBASE ------------------
@@ -72,16 +72,16 @@ DISEASE_INFO = {
         "medication": "Consult doctor immediately.",
         "diet": "Eat antioxidant-rich foods."
     }
-    # (You can keep your full dictionary here)
 }
 
 # ------------------ ROUTES ------------------
 
+# ✅ Serve Frontend
 @app.route("/")
-def home():
-    return jsonify({"message": "Backend is LIVE 🚀"})
+def serve_frontend():
+    return send_from_directory("static", "index.html")
 
-
+# ✅ Prediction API
 @app.route("/api/predict", methods=["POST"])
 def predict():
     try:
@@ -121,11 +121,10 @@ def predict():
 
     except Exception as e:
         print("❌ Prediction error:", str(e))
-        return jsonify({
-            "error": str(e)
-        }), 500
+        return jsonify({"error": str(e)}), 500
 
 
+# ✅ Save Prescription
 @app.route("/api/save-prescription", methods=["POST"])
 def save_prescription():
     try:
@@ -149,6 +148,7 @@ def save_prescription():
         return jsonify({"error": str(e)}), 500
 
 
+# ✅ Find Doctors
 @app.route("/api/find-doctors", methods=["GET"])
 def find_doctors():
     try:
@@ -164,6 +164,6 @@ def find_doctors():
 
 # ------------------ RUN ------------------
 if __name__ == "__main__":
-    port = int(os.environ.get("PORT", 10000))
+    port = int(os.environ.get("PORT", 8000))
     print(f"🚀 Running on port {port}")
     app.run(host="0.0.0.0", port=port)
