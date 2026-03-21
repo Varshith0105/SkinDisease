@@ -396,243 +396,159 @@
     </div>
   </footer>
 
-  <script>
-    // ✅ UPDATE THIS to your actual Render backend URL
-    const API_URL = 'https://skindisease-wh5y.onrender.com';
-    let currentPatientData = null;
+<script>
+const API_URL = 'https://skindisease-wh5y.onrender.com';
 
-    // ---------- Navigation ----------
-    function goTo(id) {
-      document.querySelectorAll("main > section").forEach(sec => sec.classList.add("hidden"));
-      const target = document.getElementById(id);
-      if (target) target.classList.remove("hidden");
-      window.scrollTo({ top: 0, behavior: 'smooth' });
-    }
+let currentPatientData = null;
 
-    // ---------- Modal ----------
-    function showErrorModal(message) {
-      document.getElementById('error-message').innerText = message;
-      document.getElementById('error-modal').classList.remove('hidden');
-    }
+// ---------- Navigation ----------
+function goTo(id) {
+  document.querySelectorAll("main > section").forEach(sec => sec.classList.add("hidden"));
+  document.getElementById(id).classList.remove("hidden");
+  window.scrollTo({ top: 0, behavior: 'smooth' });
+}
 
-    function hideErrorModal() {
-      document.getElementById('error-modal').classList.add('hidden');
-      goTo('upload');
-    }
+// ---------- Error Modal ----------
+function showErrorModal(message) {
+  document.getElementById('error-message').innerText = message;
+  document.getElementById('error-modal').classList.remove('hidden');
+}
 
-    // ---------- Image Preview ----------
-    function previewImage(event) {
-      const file = event.target.files[0];
-      const analyzeBtn = document.getElementById("analyze-btn");
-      const preview = document.getElementById("preview");
-      if (file) {
-        const img = document.createElement("img");
-        img.src = URL.createObjectURL(file);
-        preview.innerHTML = "";
-        preview.appendChild(img);
-        analyzeBtn.disabled = false;
-      } else {
-        preview.innerHTML = `<div><svg width="60" height="60" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1" stroke-linecap="round" stroke-linejoin="round" style="color: var(--text-secondary);"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><polyline points="17 8 12 3 7 8"></polyline><line x1="12" y1="3" x2="12" y2="15"></line></svg><p>Click or drag image to upload</p></div>`;
-        analyzeBtn.disabled = true;
-      }
-    }
+function hideErrorModal() {
+  document.getElementById('error-modal').classList.add('hidden');
+  goTo('upload');
+}
 
-    // ---------- Reset Form ----------
-    function resetForm() {
-      document.getElementById('combined-form').reset();
-      document.getElementById('analyze-btn').disabled = true;
-      document.getElementById('preview').innerHTML = `<div><svg width="60" height="60" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1" stroke-linecap="round" stroke-linejoin="round" style="color: var(--text-secondary);"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><polyline points="17 8 12 3 7 8"></polyline><line x1="12" y1="3" x2="12" y2="15"></line></svg><p>Click or drag image to upload</p></div>`;
-      document.getElementById('pdf-success').classList.add('hidden');
-    }
+// ---------- Image Preview ----------
+function previewImage(event) {
+  const file = event.target.files[0];
+  const preview = document.getElementById("preview");
+  const btn = document.getElementById("analyze-btn");
 
-    // ---------- Progress Bar Animation ----------
-    function animateProgress(targetPct, duration) {
-      const bar = document.getElementById('progress');
-      let current = parseInt(bar.style.width) || 0;
-      const steps = 30;
-      const increment = (targetPct - current) / steps;
-      const interval = duration / steps;
-      let i = 0;
-      const timer = setInterval(() => {
-        current += increment;
-        bar.style.width = Math.min(current, targetPct) + '%';
-        i++;
-        if (i >= steps) clearInterval(timer);
-      }, interval);
-    }
+  if (file) {
+    const img = document.createElement("img");
+    img.src = URL.createObjectURL(file);
+    preview.innerHTML = "";
+    preview.appendChild(img);
+    btn.disabled = false;
+  } else {
+    btn.disabled = true;
+  }
+}
 
-    // ---------- MAIN SUBMIT ----------
-    document.getElementById('combined-form').addEventListener('submit', async function (e) {
-      e.preventDefault();
+// ---------- MAIN SUBMIT ----------
+document.getElementById('combined-form').addEventListener('submit', async (e) => {
+  e.preventDefault();
 
-      const file = document.getElementById('image-input').files[0];
-      if (!file) {
-        showErrorModal("Please select an image.");
-        return;
-      }
+  const file = document.getElementById('image-input').files[0];
+  if (!file) return showErrorModal("Please upload an image");
 
-      currentPatientData = {
-        name: document.getElementById('name').value,
-        age: document.getElementById('age').value,
-        gender: document.getElementById('gender').value,
-        whatsapp: document.getElementById('whatsapp').value
-      };
+  currentPatientData = {
+    name: name.value,
+    age: age.value,
+    gender: gender.value,
+    whatsapp: whatsapp.value
+  };
 
-      goTo('processing');
-      document.getElementById('progress').style.width = '0%';
-      document.getElementById('processing-status').innerText = 'Sending image to server...';
-      animateProgress(40, 800);
+  goTo('processing');
 
-      const formData = new FormData();
-      formData.append('image', file);
+  const formData = new FormData();
+  formData.append('image', file);
 
-      try {
-        document.getElementById('processing-status').innerText = 'AI is analyzing your image...';
-        animateProgress(80, 1200);
-
-        const response = await fetch(`${API_URL}/api/predict`, {
-          method: 'POST',
-          body: formData,
-        });
-
-        // ✅ SAFE: Read raw text first, then parse JSON
-        const text = await response.text();
-        let data;
-
-        try {
-          data = JSON.parse(text);
-        } catch {
-          // Render cold start returns plain text like "Your space is spinning up..."
-          console.error("Non-JSON response from server:", text);
-          throw new Error("🕐 Server is waking up (Render cold start). Please wait 30–60 seconds and try again.");
-        }
-
-        if (!response.ok) {
-          throw new Error(data.error || `Server error: ${response.status}`);
-        }
-
-        animateProgress(100, 400);
-
-        // ✅ Populate results
-        document.getElementById('result-disease').innerText = data.disease || "Unknown";
-
-        let advice = '';
-        if (data.description && Array.isArray(data.description)) {
-          advice += data.description.join(' ') + "\n\n";
-        }
-        if (data.medication) {
-          advice += "💊 Medication: " + data.medication + "\n\n";
-        }
-        if (data.diet) {
-          advice += "🍎 Diet Tips: " + data.diet;
-        }
-        document.getElementById('result-advice').innerText = advice.trim() || "No advice available. Please consult a dermatologist.";
-
-        document.getElementById('display-name').innerText   = currentPatientData.name;
-        document.getElementById('display-age').innerText    = currentPatientData.age;
-        document.getElementById('display-gender').innerText = currentPatientData.gender;
-
-        setTimeout(() => goTo('results'), 300);
-
-      } catch (err) {
-        console.error("Prediction error:", err);
-        showErrorModal(err.message || "An unexpected error occurred. Please try again.");
-      }
+  try {
+    const response = await fetch(`${API_URL}/api/predict`, {
+      method: 'POST',
+      body: formData
     });
 
-    // ---------- PDF ----------
-    async function generateAndSendPDF() {
-      const btn = document.getElementById('send-pdf-btn');
-      btn.disabled = true;
-      btn.innerText = '⏳ Sending...';
+    const text = await response.text();
+    console.log("RAW RESPONSE:", text);
 
-      try {
-        const response = await fetch(`${API_URL}/api/save-prescription`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            ...currentPatientData,
-            disease: document.getElementById('result-disease').innerText
-          })
-        });
-
-        const text = await response.text();
-        let data;
-        try {
-          data = JSON.parse(text);
-        } catch {
-          throw new Error("Server returned an invalid response.");
-        }
-
-        if (!response.ok) throw new Error(data.error || "Failed to save prescription.");
-
-        document.getElementById('pdf-success').classList.remove('hidden');
-        btn.innerText = '✅ Sent!';
-
-      } catch (err) {
-        console.error("PDF error:", err);
-        showErrorModal("PDF generation failed: " + err.message);
-        btn.disabled = false;
-        btn.innerText = 'Generate & Send PDF to WhatsApp';
-      }
+    let data;
+    try {
+      data = JSON.parse(text);
+    } catch {
+      throw new Error("Server is waking up (wait 30s and retry)");
     }
 
-    // ---------- Doctors ----------
-    function fetchDoctors() {
-      if (!navigator.geolocation) {
-        showErrorModal("Geolocation is not supported by your browser.");
-        return;
-      }
-      navigator.geolocation.getCurrentPosition(
-        async (pos) => {
-          const { latitude, longitude } = pos.coords;
-          try {
-            const res = await fetch(`${API_URL}/find_doctors?lat=${latitude}&lon=${longitude}`);
-            const text = await res.text();
-            let data;
-            try {
-              data = JSON.parse(text);
-            } catch {
-              throw new Error("Invalid response from doctors API.");
-            }
-
-            const list = document.getElementById('doctor-list');
-            list.innerHTML = "";
-
-            if (data.doctors && data.doctors.length > 0) {
-              data.doctors.forEach(d => {
-                list.innerHTML += `
-                  <div class="doctor-card">
-                    <h4 style="color: var(--brand-primary); margin-bottom: 0.5rem;">${d.name}</h4>
-                    <p style="color: var(--text-secondary); font-size: 0.9rem;">${d.address}</p>
-                  </div>`;
-              });
-            } else {
-              list.innerHTML = `<p style="color: var(--text-secondary); text-align: center;">No doctors found near your location.</p>`;
-            }
-
-            document.getElementById('location-name').innerText = `${latitude.toFixed(4)}, ${longitude.toFixed(4)}`;
-            goTo('doctors');
-
-          } catch (err) {
-            showErrorModal("Could not fetch doctors: " + err.message);
-          }
-        },
-        () => {
-          showErrorModal("Location access denied. Please allow location access and try again.");
-        }
-      );
+    if (!response.ok) {
+      throw new Error(data.error || "Prediction failed");
     }
 
-    // ---------- Theme Toggle ----------
-    document.getElementById('theme-toggle').addEventListener('change', function () {
-      document.body.classList.toggle('light-theme', this.checked);
+    // ✅ Fill Results
+    document.getElementById('result-disease').innerText = data.disease;
+
+    let advice = "";
+    if (data.description) advice += data.description.join(" ") + "\n\n";
+    if (data.medication) advice += "💊 " + data.medication + "\n\n";
+    if (data.diet) advice += "🥗 " + data.diet;
+
+    document.getElementById('result-advice').innerText = advice;
+
+    displayName.innerText = currentPatientData.name;
+    displayAge.innerText = currentPatientData.age;
+    displayGender.innerText = currentPatientData.gender;
+
+    goTo('results');
+
+  } catch (err) {
+    console.error(err);
+    showErrorModal(err.message);
+  }
+});
+
+// ---------- SAVE ----------
+async function generateAndSendPDF() {
+  try {
+    const res = await fetch(`${API_URL}/api/save-prescription`, {
+      method: "POST",
+      headers: {"Content-Type": "application/json"},
+      body: JSON.stringify({
+        ...currentPatientData,
+        disease: resultDisease.innerText
+      })
     });
 
-    // ---------- Init ----------
-    document.addEventListener('DOMContentLoaded', () => {
-      goTo('landing');
-    });
-  </script>
+    const data = await res.json();
+    alert("Saved Successfully");
+
+  } catch (err) {
+    showErrorModal("Failed to save");
+  }
+}
+
+// ---------- DOCTORS (FIXED 🔥) ----------
+async function fetchDoctors() {
+  navigator.geolocation.getCurrentPosition(async pos => {
+    const { latitude, longitude } = pos.coords;
+
+    try {
+      const res = await fetch(`${API_URL}/api/find-doctors?lat=${latitude}&lon=${longitude}`);
+
+      const data = await res.json();
+
+      const list = document.getElementById('doctor-list');
+      list.innerHTML = "";
+
+      data.doctors.forEach(d => {
+        list.innerHTML += `<div class="doctor-card">
+          <h4>${d.name}</h4>
+          <p>${d.address}</p>
+        </div>`;
+      });
+
+      goTo('doctors');
+
+    } catch (err) {
+      showErrorModal("Failed to fetch doctors");
+    }
+  });
+}
+
+// ---------- INIT ----------
+document.addEventListener("DOMContentLoaded", () => {
+  goTo("landing");
+});
+</script>
 </body>
 </html>
